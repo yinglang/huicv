@@ -116,7 +116,8 @@ def merge_det_result(json_result_file, corner_gt_file, merged_gt_file, merge_nms
     _, merged_json_result_file = COCOMergeResult(use_nms=use_nms, nms_th=merge_nms_th)(
         corner_gt_file,
         json_result_file,
-        os.path.split(json_result_file)[0]  # dir
+        os.path.split(json_result_file)[0],  # dir
+        merged_gt_file
     )
     coco_gt = COCO(merged_gt_file)
     return coco_gt, merged_json_result_file
