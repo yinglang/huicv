@@ -176,9 +176,23 @@ def cal_recall_precision(match_gts, dets_score, len_pos):
         chosen_idx.append(i)
     recall = np.array(final_recall)
     precision = np.array(final_precison)
+
+    if len(recall) == 0:  # no det
+        if len_pos == 0:  # no gt
+            recall, precision = np.array([1.]), np.array([1.])
+        else:  # have gt
+            recall, precision = np.array([0]), np.array([0.])
+
     if LocationEvaluator.SAVE_RECALL_PRECISION_PATH is not None:
         np.savez(LocationEvaluator.SAVE_RECALL_PRECISION_PATH, recall=recall, precision=precision, dets_score=dets_score[chosen_idx])
     return recall, precision
+
+
+def cat(arrays):
+    if len(arrays) == 0:
+        return np.array([])
+    else:
+        return np.concatenate(arrays)
 
 
 def match_and_cal_recall_precision(all_dets, all_dets_score, all_gts, all_gts_ignore, match_th, maxDets,
@@ -208,8 +222,8 @@ def match_and_cal_recall_precision(all_dets, all_dets_score, all_gts, all_gts_ig
 
     # filter ignore det out when evaluate AP
     images_id = list(all_match_gts.keys())
-    match_gts_array = np.concatenate([all_match_gts[img_id][all_dets_keep[img_id]] for img_id in images_id])
-    dets_scores_array = np.concatenate([all_sorted_dets_scores[img_id][all_dets_keep[img_id]] for img_id in images_id])
+    match_gts_array = cat([all_match_gts[img_id][all_dets_keep[img_id]] for img_id in images_id])
+    dets_scores_array = cat([all_sorted_dets_scores[img_id][all_dets_keep[img_id]] for img_id in images_id])
 
     recall, precision = cal_recall_precision(match_gts_array, dets_scores_array, len_pos)
     return {"recall": recall, "precision": precision}
@@ -224,7 +238,7 @@ def match_and_cal_recall_precision_of_every_image(all_dets, all_dets_score, all_
     """
     assert (set(all_gts.keys()) | set(all_dets.keys())) == set(all_gts.keys()), "all det image must in gt"
     all_recall, all_precision = {}, {}
-    for i in all_gts:
+    for i in all_gts:  # for each image
         gts, gts_ignore = all_gts[i], all_gts_ignore[i]
         dets, dets_score = all_dets[i], all_dets_score[i]
 
@@ -361,19 +375,25 @@ class LocationEvaluator(object):
 
     SAVE_RECALL_PRECISION_PATH = None
 
-    def __init__(self, evaluate_img_separate=False, class_wise=False,
+    def __init__(self, evaluate_img_separate=False, class_wise=False, use_ignore_attr=True,
                  location_param={}, matcher_kwargs=dict(multi_match_not_false_alarm=False), **kwargs):
         """
             evaluate_img_separate: if True, then for each image, calculate recall and precision, only set True for analysis
         """
-        self.matchThs = [0.5, 1.0, 2.0]
         self.recThrs = np.linspace(.0, 1.00, int(np.round((1.00 - .0) / .01)) + 1, endpoint=True)
-        self.maxDets = [200] if "maxDets" not in kwargs else kwargs["maxDets"]
-        self.areaRng = [[1 ** 2, 1e5 ** 2], [1 ** 2, 20 ** 2], [1 ** 2, 8 ** 2], [8 ** 2, 12 ** 2],
-                        [12 ** 2, 20 ** 2], [20 ** 2, 32 ** 2], [32 ** 2, 1e5 ** 2]] \
-            if "areaRng" not in kwargs else kwargs["areaRng"]
-        self.areaRngLbl = ['all', 'tiny', 'tiny1', 'tiny2', 'tiny3', 'small', 'reasonable'] \
-            if "areaRngLbl" not in kwargs else kwargs["areaRngLbl"]
+        if not class_wise:
+            self.matchThs = [0.5, 1.0, 2.0]
+            self.maxDets = [200] if "maxDets" not in kwargs else kwargs["maxDets"]
+            self.areaRng = [[1 ** 2, 1e5 ** 2], [1 ** 2, 20 ** 2], [1 ** 2, 8 ** 2], [8 ** 2, 12 ** 2],
+                            [12 ** 2, 20 ** 2], [20 ** 2, 32 ** 2], [32 ** 2, 1e5 ** 2]] \
+                if "areaRng" not in kwargs else kwargs["areaRng"]
+            self.areaRngLbl = ['all', 'tiny', 'tiny1', 'tiny2', 'tiny3', 'small', 'reasonable'] \
+                if "areaRngLbl" not in kwargs else kwargs["areaRngLbl"]
+        else:
+            self.matchThs = [1.0]
+            self.maxDets = [200] if "maxDets" not in kwargs else kwargs["maxDets"]
+            self.areaRng = [[1 ** 2, 1e5 ** 2]] if "areaRng" not in kwargs else kwargs["areaRng"]
+            self.areaRngLbl = ['all'] if "areaRngLbl" not in kwargs else kwargs["areaRngLbl"]
 
         for key, value in location_param.items():
             assert key in ['maxDets', 'recThrs', 'matchThs', 'areaRng', 'areaRngLbl'], f"{key} is not valid"
@@ -387,9 +407,12 @@ class LocationEvaluator(object):
 
         self.class_wise = class_wise
         self.evaluate_img_separate = evaluate_img_separate
+        self.use_ignore_attr = use_ignore_attr
 
         self.matcher = PointMatcher()
         self.matcher_kwargs = matcher_kwargs
+
+        self.gt_jd = None
 
     def __call__(self, det_jd, gt_jd):
         try:
@@ -400,6 +423,7 @@ class LocationEvaluator(object):
                 gt_jd = gt_jd.dataset
         except ModuleNotFoundError as e:
             pass
+        self.gt_jd = gt_jd
         return self.evaluate_multi_class(det_jd, gt_jd)
 
     def evaluate_multi_class(self, det_jd, gt_jd):
@@ -409,6 +433,7 @@ class LocationEvaluator(object):
             single_class_det_jd = [det for det in det_jd if det['category_id'] == cate['id']]
             single_class_gt_jd = {key: value for key, value in gt_jd.items() if key != 'annotations'}
             single_class_gt_jd['annotations'] = gt_annos
+            # print("****************************** evaluating on", cate, len(gt_annos), len(single_class_det_jd))
             res = self.evaluate_single_class(single_class_det_jd, single_class_gt_jd)
             res_set.append(res)
         return res_set
@@ -431,13 +456,19 @@ class LocationEvaluator(object):
         #  for img_id, dets in g_gt_jd.items()}
         all_gts_centerwh = {img_id: np.array([get_center_w_h(*gt['bbox']) for gt in gts], dtype=np.float32) for
                             img_id, gts in g_gt_jd.items()}
-        all_gts_ignore = {img_id: np.array([gt['ignore'] for gt in gts], dtype=np.bool) for img_id, gts in
-                          g_gt_jd.items()}
+        all_gts_ignore = {img_id:  self.get_ignore(gts) for img_id, gts in g_gt_jd.items()}
 
         res = evaluate_in_multi_condition(all_dets_point, all_dets_score, all_gts_centerwh, all_gts_ignore,
                                           self.matchThs, self.size_ranges, self.maxDets,
                                           self.matcher, self.matcher_kwargs, self.evaluate_img_separate)
         return res
+
+    def get_ignore(self, gts):
+        for gt in gts:
+            gt['ignore'] = gt.get("iscrowd", 0)
+            if self.use_ignore_attr:
+                gt['ignore'] = gt["ignore"] or (gt.get('ignore', 0))  # changed by hui
+        return np.array([gt['ignore'] for gt in gts], dtype=np.bool_)
 
     def summarize(self, res, gt_jd, print_func=None):
         if print_func is None:
@@ -470,15 +501,26 @@ class LocationEvaluator(object):
             si = res[0]['size_range_idx']
             mdi = res[0]['maxDets_idx']
             if self.class_wise:
-                raise NotImplementedError()
+                self.print_class_wise(res, all_aps, all_ars, print_func)
             else:
                 all_aps = all_aps.mean(axis=0)
                 all_ars = all_ars.mean(axis=0)
                 print(mi)
                 for i, (ap, ar) in enumerate(zip(all_aps, all_ars)):
                     logs = "Location eval: (AP/AR) @[ dis={}\t| area={}\t| maxDets={}]\t= {}/{}".format(
-                        self.matchThs[mi[i]], self.areaRngLbl[si[i]], self.maxDets[mdi[i]], '%.4f'% ap, '%.4f' % ar)
+                        self.matchThs[mi[i]], self.areaRngLbl[si[i]], self.maxDets[mdi[i]], '%.4f' % ap, '%.4f' % ar)
                     print_func(logs)
+
+    def print_class_wise(self, res, all_aps, all_ars, print_func=None):
+        for cls in range(len(res)):
+            mi = res[cls]['match_th_idx']
+            si = res[cls]['size_range_idx']
+            mdi = res[cls]['maxDets_idx']
+            for i, (ap, ar) in enumerate(zip(all_aps[cls], all_ars[cls])):
+                logs = "({})Location eval: (AP/AR) @[ dis={}\t| area={}\t| maxDets={}]\t= {}/{}".format(
+                    self.gt_jd['categories'][cls]['name'],
+                    self.matchThs[mi[i]], self.areaRngLbl[si[i]], self.maxDets[mdi[i]], '%.4f' % ap, '%.4f' % ar)
+                print_func(logs)
 
     @staticmethod
     def get_AP_of_recall(recall, precision, recall_th=None, DEBUG=False):
@@ -517,10 +559,11 @@ class LocationEvaluator(object):
 if __name__ == '__main__':
     from argparse import ArgumentParser
     parser = ArgumentParser()
-    parser.add_argument('gt', help='gt file')
     parser.add_argument('det', help='det result file')
+    parser.add_argument('gt', help='gt file')
     parser.add_argument('--matchThs', default=[0.5, 1.0, 2.0], nargs='+', type=float)
     parser.add_argument('--maxDets', default=[300], nargs='+', type=int)
+    parser.add_argument('--class_wise', default=False, type=bool)
     parser.add_argument('--task', default=1, type=int)
     parser.add_argument('--given-recall', default=[0.9], nargs='+', type=float, help='arg for task==2')
     args = parser.parse_args()
@@ -531,6 +574,7 @@ if __name__ == '__main__':
     # ############################### 1. normal evaluation
     if args.task == 1:
         location_kwargs = dict(
+            class_wise=args.class_wise,
             matcher_kwargs=dict(multi_match_not_false_alarm=False),
             location_param=dict(
                 matchThs=args.matchThs,  # [0.5, 1.0, 2.0],
