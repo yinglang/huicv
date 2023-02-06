@@ -2,6 +2,19 @@ import numpy as np
 import matplotlib.pyplot as plt
 import warnings
 from .bbox_utils import *
+import numpy as np
+
+
+def xyxy2xywh(xyxy):
+    x1, y1, x2, y2 = xyxy[..., 0:1], xyxy[..., 1:2], xyxy[..., 2:3], xyxy[..., 3:4]
+    w, h = x2 - x1, y2 - y1
+    return np.concatenate((x1, y1, w, h, xyxy[..., 4:]), axis=-1)
+
+
+def xywh2xyxy(xywh):
+    x1, y1, w, h = xywh[..., 0:1], xywh[..., 1:2], xywh[..., 2:3], xywh[..., 3:4]
+    x2, y2 = x1 + w, y1 + h
+    return np.concatenate((x1, y1, x2, y2, xywh[..., 4:]), axis=-1)
 
 
 def draw_a_bbox(box, color, linewidth=1, dash=False, fill=False, ax=None):
@@ -32,7 +45,7 @@ def box_to_rect(box, color, linewidth=1, fill=False, ls='-'):
                   linewidth=linewidth, linestyle=ls)
 
 
-def draw_bbox(fig, bboxes, color=(0, 0, 0), linewidth=1, fontsize=5, normalized_label=True, wh=None,
+def draw_bbox(fig, bboxes, color=(0, 0, 0), linewidth=1, fontsize=5, normalized_label=False, wh=None,
               show_text=False, class_names=None, class_colors=None, use_real_line=None, threshold=None):
     """
         draw boxes on fig
@@ -62,8 +75,15 @@ def draw_bbox(fig, bboxes, color=(0, 0, 0), linewidth=1, fontsize=5, normalized_
 
     if color is not None and class_colors is not None:
         warnings.warn("'class_colors' set, then 'color' will not use, please set it to None")
+    instance_colors = None
+    if color is not None:
+        if isinstance(color[0], (tuple, list)):
+            instance_colors = color
+            color = None
 
-    for box in bboxes:
+    for i, box in enumerate(bboxes):
+        if instance_colors is not None:
+            color = instance_colors[i]
         # [x1, y1, x2, y2, (cid), (score) ...]
         if len(box) >= 5 and box[4] < 0: continue  # have cid or not
         if len(box) >= 6 and threshold is not None and box[5] < threshold: continue
@@ -85,3 +105,22 @@ def draw_bbox(fig, bboxes, color=(0, 0, 0), linewidth=1, fontsize=5, normalized_
 def draw_center(ax, bboxes, **kwargs):
     center = np.array([((x1+x2)/2, (y1+y2)/2)for x1, y1, x2, y2, *arg in bboxes])
     ax.scatter(center[:, 0], center[:, 1], **kwargs)
+
+
+def get_hsv_colors(n):
+    import colorsys
+    rgbs = [None] * n
+    for i in range(n):
+        h = i / n
+        rgbs[i] = colorsys.hsv_to_rgb(h, 1, 1)
+    return rgbs
+
+
+# for coco annotation
+def show_anns(anns, color=(0, 0, 0), axes=None):
+    if axes is None:
+        axes = plt.gca()
+    bboxes = np.array([ann['bbox'] for ann in anns])
+    bboxes = xywh2xyxy(bboxes)
+    draw_bbox(axes, bboxes, color=color, normalized_label=False)
+
