@@ -46,14 +46,10 @@ show_density_as_heatmap(data_a, data_b, (50, 50))
 show_meanY_and_density_of_Xbins(data_a, data_b)
 ```
 
-很难看出分布来
+> 散点图很难看出分布来
+> 密度热土可以看到点对只要集中在(0, 0)附近
+> 从mean:X-Y可以看到Y的均值与X无关
 
 ![scatter](../demo/img/vis/scatter.png)
-
-可以看到点对只要集中在(0, 0)附近
-
 ![density_heatmap](../demo/img/vis/density_heatmap.png)
-
-从mean:X-Y可以看到Y的均值与X无关
-
 ![mean_hisgram](../demo/img/vis/mean_histgram.png)
