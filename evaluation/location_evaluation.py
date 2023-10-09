@@ -1,6 +1,10 @@
+import copy
+
 import numpy as np
 from copy import deepcopy
 import sys
+import time
+from multiprocplus import multiprocess_for
 
 # python huicv/evaluation/location_evaluation.py \
 # '/home/ubuntu/dataset/visDrone/coco_fmt_annotations/VisDrone2018-DET-val-person.json' \
@@ -154,6 +158,23 @@ class PointMatcher(GTMatcher):
 
 
 # part2: recall precision cal, to get recall and precision from match result start ###############################
+
+def pr_of_no_det(num_gt):
+    if num_gt == 0:  # no gt
+        recall, precision = np.array([1.]), np.array([1.])
+    else:  # have gt
+        recall, precision = np.array([0]), np.array([0.])
+    return recall, precision
+
+
+def pr_of_no_gt(num_det):
+    if num_det == 0:  # no det
+        recall, precision = np.array([1.]), np.array([1.])
+    else:  # have det
+        recall, precision = np.array([1.]), np.array([0.])
+    return recall, precision
+
+
 def cal_recall_precision(match_gts, dets_score, len_pos):
     idx = np.argsort(-dets_score)
     match_gts, dets_score = match_gts[idx], dets_score[idx]
@@ -178,10 +199,7 @@ def cal_recall_precision(match_gts, dets_score, len_pos):
     precision = np.array(final_precison)
 
     if len(recall) == 0:  # no det
-        if len_pos == 0:  # no gt
-            recall, precision = np.array([1.]), np.array([1.])
-        else:  # have gt
-            recall, precision = np.array([0]), np.array([0.])
+        recall, precision = pr_of_no_det(len_pos)
 
     if LocationEvaluator.SAVE_RECALL_PRECISION_PATH is not None:
         np.savez(LocationEvaluator.SAVE_RECALL_PRECISION_PATH, recall=recall, precision=precision, dets_score=dets_score[chosen_idx])
@@ -376,7 +394,8 @@ class LocationEvaluator(object):
     SAVE_RECALL_PRECISION_PATH = None
 
     def __init__(self, evaluate_img_separate=False, class_wise=False, use_ignore_attr=True,
-                 location_param={}, matcher_kwargs=dict(multi_match_not_false_alarm=False), **kwargs):
+                 location_param={}, matcher_kwargs=dict(multi_match_not_false_alarm=False),
+                 num_process=-1, print_func=print, **kwargs):
         """
             evaluate_img_separate: if True, then for each image, calculate recall and precision, only set True for analysis
         """
@@ -413,6 +432,8 @@ class LocationEvaluator(object):
         self.matcher_kwargs = matcher_kwargs
 
         self.gt_jd = None
+        self.num_process = num_process
+        self.print_func = print_func
 
     def __call__(self, det_jd, gt_jd):
         try:
@@ -427,40 +448,88 @@ class LocationEvaluator(object):
         return self.evaluate_multi_class(det_jd, gt_jd)
 
     def evaluate_multi_class(self, det_jd, gt_jd):
-        res_set = []
-        for cate in gt_jd['categories']:
-            gt_annos = [anno for anno in gt_jd['annotations'] if anno['category_id'] == cate['id']]
-            single_class_det_jd = [det for det in det_jd if det['category_id'] == cate['id']]
-            single_class_gt_jd = {key: value for key, value in gt_jd.items() if key != 'annotations'}
-            single_class_gt_jd['annotations'] = gt_annos
-            # print("****************************** evaluating on", cate, len(gt_annos), len(single_class_det_jd))
-            res = self.evaluate_single_class(single_class_det_jd, single_class_gt_jd)
-            res_set.append(res)
+        # gt_jd_common = {key: value for key, value in gt_jd.items() if key != 'annotations'}
+        gt_annos_all_cate = {cat["id"]: [] for cat in gt_jd['categories']}
+        gt_annos_all_cate.update(group_by(gt_jd["annotations"], "category_id"))
+        det_jd_all_cate = {cat["id"]: [] for cat in gt_jd['categories']}
+        det_jd_all_cate.update(group_by(det_jd, "category_id"))
+
+        self.print_func("start evaluation in multiprocess ................")
+        tic = time.time()
+        # from huicv.utils.multi_process import multiprocess_run
+        # costs = self.get_time_cost_of_all_cate(gt_annos_all_cate, det_jd_all_cate)
+        # print(sorted(costs))
+        res_set = multiprocess_for(
+            self.evaluate_single_class,
+            [(idx, det_jd_all_cate[cate['id']], gt_annos_all_cate[cate['id']])
+             for idx, cate in enumerate(gt_jd['categories'])],
+            share_data_list=[], num_process=self.num_process, debug_info=1,
+            cost_list=self.get_time_cost_of_all_cate(gt_annos_all_cate, det_jd_all_cate),
+            cost_rate_per_process=3
+        )
+        # faied run in multi process, run in single process instead
+        if len(res_set) == 0:
+            self.print_func("multi-process run failed, run in single process.")
+            res_set = [
+                self.evaluate_single_class(
+                    idx, det_jd_all_cate[cate['id']], gt_annos_all_cate[cate['id']])
+                for idx, cate in enumerate(gt_jd['categories'])]
+        self.print_func(f"finish evaluation, {time.time()-tic}s")
+        assert len(res_set) == len(gt_jd['categories']), f"{len(res_set)} vs {len(gt_jd['categories'])}"
         return res_set
 
-    def evaluate_single_class(self, det_jd, gt_jd):
-        g_det_jd = {img['id']: [] for img in gt_jd['images']}
-        g_det_jd.update(group_by(det_jd, "image_id"))
+    def evaluate_single_class(self, idx, det_jd, gt_annos):
+        # tic = time.time()
+        res = self.evaluate_while_no_det_or_gt(len(det_jd), len(gt_annos))
+        if res is None:
+            # g_det_jd = {img['id']: [] for img in gt_jd['images']}
+            # g_det_jd.update(group_by(det_jd, "image_id"))
+            # g_gt_jd = {img['id']: [] for img in gt_jd['images']}
+            # g_gt_jd.update(group_by(gt_annos, 'image_id'))
+            g_det_jd = group_by(det_jd, "image_id")
+            g_gt_jd = group_by(gt_annos, 'image_id')
+            g_gt_jd.update({img_id: [] for img_id in g_det_jd if img_id not in g_gt_jd})
+            g_det_jd.update({img_id: [] for img_id in g_gt_jd if img_id not in g_det_jd})
 
-        g_gt_jd = {img['id']: [] for img in gt_jd['images']}
-        g_gt_jd.update(group_by(gt_jd['annotations'], 'image_id'))
+            # all_dets_bbox = {img_id: [det['bbox'] for det in dets] for img_id, dets in g_det_jd.items()}
+            all_dets_point = {img_id: np.array([det['point'] for det in dets], dtype=np.float32) for img_id, dets in
+                              g_det_jd.items()}
+            all_dets_score = {img_id: np.array([det['score'] for det in dets], dtype=np.float32) for img_id, dets in
+                              g_det_jd.items()}
 
-        # all_dets_bbox = {img_id: [det['bbox'] for det in dets] for img_id, dets in g_det_jd.items()}
-        all_dets_point = {img_id: np.array([det['point'] for det in dets], dtype=np.float32) for img_id, dets in
-                          g_det_jd.items()}
-        all_dets_score = {img_id: np.array([det['score'] for det in dets], dtype=np.float32) for img_id, dets in
-                          g_det_jd.items()}
-        # all_gts_point = {img_id: np.array([get_center(*gt['bbox']) for gt in gts], dtype=np.float32)
-        #  for img_id, gts in g_gt_jd.items()}
-        # all_gts_score = {img_id: np.array([0.9 for det in dets], dtype=np.float32)
-        #  for img_id, dets in g_gt_jd.items()}
-        all_gts_centerwh = {img_id: np.array([get_center_w_h(*gt['bbox']) for gt in gts], dtype=np.float32) for
-                            img_id, gts in g_gt_jd.items()}
-        all_gts_ignore = {img_id:  self.get_ignore(gts) for img_id, gts in g_gt_jd.items()}
+            all_gts_centerwh = {img_id: np.array([get_center_w_h(*gt['bbox']) for gt in gts], dtype=np.float32) for
+                                img_id, gts in g_gt_jd.items()}
+            all_gts_ignore = {img_id:  self.get_ignore(gts) for img_id, gts in g_gt_jd.items()}
 
-        res = evaluate_in_multi_condition(all_dets_point, all_dets_score, all_gts_centerwh, all_gts_ignore,
-                                          self.matchThs, self.size_ranges, self.maxDets,
-                                          self.matcher, self.matcher_kwargs, self.evaluate_img_separate)
+            res = evaluate_in_multi_condition(all_dets_point, all_dets_score, all_gts_centerwh, all_gts_ignore,
+                                              self.matchThs, self.size_ranges, self.maxDets,
+                                              self.matcher, self.matcher_kwargs, self.evaluate_img_separate)
+        # self.print_func(f"finished {idx}-th task (category: {cate['id']}, {time.time() - tic}s,"
+        #                 f" gt: {len(gt_annos)}, det: {len(single_class_det_jd)})")
+        return res
+
+    def evaluate_while_no_det_or_gt(self, num_det, num_gt):
+        res = {
+            'match_th_idx': [],
+            'size_range_idx': [],
+            'maxDets_idx': [],
+            "recall": [],
+            "precision": []
+        }
+        if num_det == 0:
+            recall, precision = pr_of_no_det(num_gt)
+        elif num_gt == 0:
+            recall, precision = pr_of_no_gt(num_det)
+        else:
+            return None
+        for si, (min_size, max_size) in enumerate(self.size_ranges):
+            for mi, match_th in enumerate(self.matchThs):
+                for mdi, maxDets in enumerate(self.maxDets):
+                    res['match_th_idx'].append(mi)
+                    res['size_range_idx'].append(si)
+                    res['maxDets_idx'].append(mdi)
+                    res["recall"].append(recall)
+                    res["precision"].append(precision)
         return res
 
     def get_ignore(self, gts):
@@ -472,7 +541,7 @@ class LocationEvaluator(object):
 
     def summarize(self, res, gt_jd, print_func=None):
         if print_func is None:
-            print_func = print
+            print_func = self.print_func
         try:
             from pycocotools.coco import COCO
             if isinstance(gt_jd, COCO):
@@ -480,6 +549,9 @@ class LocationEvaluator(object):
         except ModuleNotFoundError as e:
             pass
         assert isinstance(gt_jd, dict)
+
+        print_func("start summarize ...............")
+        tic = time.time()
 
         all_aps = []
         all_ars = []
@@ -496,6 +568,8 @@ class LocationEvaluator(object):
         all_aps = np.array(all_aps)
         all_ars = np.array(all_ars)
 
+        print_func(f"finish summarize {time.time()-tic}s")
+
         if len(all_aps) > 0:
             mi = res[0]['match_th_idx']
             si = res[0]['size_range_idx']
@@ -505,7 +579,6 @@ class LocationEvaluator(object):
             else:
                 all_aps = all_aps.mean(axis=0)
                 all_ars = all_ars.mean(axis=0)
-                print(mi)
                 for i, (ap, ar) in enumerate(zip(all_aps, all_ars)):
                     logs = "Location eval: (AP/AR) @[ dis={}\t| area={}\t| maxDets={}]\t= {}/{}".format(
                         self.matchThs[mi[i]], self.areaRngLbl[si[i]], self.maxDets[mdi[i]], '%.4f' % ap, '%.4f' % ar)
@@ -521,6 +594,24 @@ class LocationEvaluator(object):
                     self.gt_jd['categories'][cls]['name'],
                     self.matchThs[mi[i]], self.areaRngLbl[si[i]], self.maxDets[mdi[i]], '%.4f' % ap, '%.4f' % ar)
                 print_func(logs)
+
+    def get_time_cost_of_all_cate(self, gt_annos_all_cate, det_jd_all_cate):
+        """
+            run cost = sum_{i \in img_id_of_cat_id} len(gt[i]) * len(det[i])
+        """
+        id_cost = []
+        for i, cat_id in enumerate(gt_annos_all_cate):
+            gt_annos, dets = gt_annos_all_cate[cat_id], det_jd_all_cate[cat_id]
+            img2gts = group_by(gt_annos, "image_id")
+            img2dets = group_by(dets, "image_id")
+            # if no det or no gt, only cost 0.2s due to early return, if not take 3.0s base time
+            cost = 3.0 if len(gt_annos) * len(dets) > 0 else 0.2
+            for image_id in img2dets:
+                cost += len(img2dets[image_id]) / 20000 * 3
+            for image_id in img2gts:
+                cost += len(img2gts[image_id]) / 10000 * 3
+            id_cost.append(cost)
+        return id_cost
 
     @staticmethod
     def get_AP_of_recall(recall, precision, recall_th=None, DEBUG=False):
@@ -549,25 +640,14 @@ class LocationEvaluator(object):
         except ModuleNotFoundError as e:
             pass
 
-        assert isinstance(det_jd, list)
+        assert isinstance(det_jd, list), type(det_jd)
         for det in det_jd:
             if 'point' not in det:
                 x, y, w, h = det['bbox']
                 det['point'] = [x + (w - 1) / 2, y + (h - 1) / 2]
 
 
-if __name__ == '__main__':
-    from argparse import ArgumentParser
-    parser = ArgumentParser()
-    parser.add_argument('det', help='det result file')
-    parser.add_argument('gt', help='gt file')
-    parser.add_argument('--matchThs', default=[0.5, 1.0, 2.0], nargs='+', type=float)
-    parser.add_argument('--maxDets', default=[300], nargs='+', type=int)
-    parser.add_argument('--class_wise', default=False, type=bool)
-    parser.add_argument('--task', default=1, type=int)
-    parser.add_argument('--given-recall', default=[0.9], nargs='+', type=float, help='arg for task==2')
-    args = parser.parse_args()
-
+def main(args):
     if isinstance(args.matchThs, float):
         args.matchThs = [args.matchThs]
 
@@ -705,3 +785,18 @@ if __name__ == '__main__':
     # plt.legend()
     # plt.show()
     # # print(np.mean(precision))
+
+
+if __name__ == '__main__':
+    from argparse import ArgumentParser
+    parser = ArgumentParser()
+    parser.add_argument('det', help='det result file')
+    parser.add_argument('gt', help='gt file')
+    parser.add_argument('--matchThs', default=[0.5, 1.0, 2.0], nargs='+', type=float)
+    parser.add_argument('--maxDets', default=[300], nargs='+', type=int)
+    parser.add_argument('--class_wise', default=False, type=bool)
+    parser.add_argument('--task', default=1, type=int)
+    parser.add_argument('--given-recall', default=[0.9], nargs='+', type=float, help='arg for task==2')
+    args = parser.parse_args()
+    main(args)
+

@@ -125,6 +125,8 @@ class COCOExpandEval(COCOeval):
                 gt['ignore'] = ('iscrowd' in gt and gt['iscrowd']) or gt['ignore']  # changed by hui
             else:
                 gt['ignore'] = 'iscrowd' in gt and gt['iscrowd']
+            if 'iscrowd' not in gt:  # for mask evaluation of lvis
+                gt['iscrowd'] = 0
 
             # ########################################################### change by hui ###############################
             if self.ignore_uncertain and 'uncertain' in gt and gt['uncertain']:
@@ -437,17 +439,33 @@ class COCOExpandEval(COCOeval):
                  for areaRng in p.areaRng
                  for imgId in p.imgIds
              ]
+        # from multiprocplus import multiprocess_for
+        # eval_imgs_all_cat = multiprocess_for(self.evaluate_cat, [(catId,) for catId in catIds], debug_info=1)
+        # self.evalImgs = []
+        # [self.evalImgs.extend(eval_imgs) for eval_imgs in eval_imgs_all_cat]
+
         self._paramsEval = copy.deepcopy(self.params)
         toc = time.time()
         print('DONE (t={:0.2f}s).'.format(toc-tic))
 
+    def evaluate_cat(self, catId):
+        p = self.params
+        maxDet = p.maxDets[-1]
+        evalImgs = [self.evaluateImg(imgId, catId, areaRng, maxDet)
+                 for areaRng in p.areaRng
+                 for imgId in p.imgIds
+        ]
+        return evalImgs
+
 
 if __name__ == '__main__':
     from pycocotools.coco import COCO
-    gt_file = 'data/tiny_set/mini_annotations/tiny_set_test_all.json'
+    # gt_file = 'data/tiny_set/mini_annotations/tiny_set_test_all.json'
+    gt_file = 'data/coco/lvis/lvis_v1_val.json'
     res_file = 'exp/latest_result.json'
     cocoGt = COCO(gt_file)
     cocoDt = cocoGt.loadRes(res_file)
+    print("load data over.")
 
     # origin coco evaluation
     # cocofmt_kwargs = {}
@@ -456,12 +474,12 @@ if __name__ == '__main__':
     cocofmt_kwargs=dict(
         ignore_uncertain=True,
         use_ignore_attr=True,
-        use_iod_for_ignore=True,
+        use_iod_for_ignore=False,
         iod_th_of_iou_f="lambda iou: (2*iou)/(1+iou)",
         cocofmt_param=dict(
-            evaluate_standard='tiny',  # or 'coco'
-            iouThrs=[0.25, 0.5, 0.75],  # set this same as set evaluation.iou_thrs
-            maxDets=[200],              # set this same as set evaluation.proposal_nums
+            evaluate_standard='coco',   # 'tiny',  # or 'coco'
+            # iouThrs=[0.25, 0.5, 0.75],  # set this same as set evaluation.iou_thrs
+            # maxDets=[300],              # set this same as set evaluation.proposal_nums
         )
     )
 
