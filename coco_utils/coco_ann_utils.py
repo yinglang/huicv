@@ -339,40 +339,6 @@ from PIL import Image
 import matplotlib.pyplot as plt
 
 
-def show_images(imgs, plot_func=None, mxn=None, fig_kwargs={}, titles=None):
-    if mxn is None:
-        m = int(np.sqrt(len(imgs)))
-        n = int(np.ceil(len(imgs) / m))
-        mxn = (m, n)
-    if 'figsize' not in fig_kwargs:
-        sizes = np.array([img.shape[:2] for img in imgs])
-        sizes = np.ceil((sizes.sum(axis=0) / 100))
-        fig_kwargs['figsize'] = (int(sizes[1]), int(sizes[0]))
-    num_rows, num_cols = mxn
-    fig, axes = plt.subplots(num_rows, num_cols, **fig_kwargs)  # figsize=(4, 3)
-    for i in range(num_rows):
-        for j in range(num_cols):
-            idx = i * num_cols + j
-            if idx < len(imgs):
-                # 获取当前子图的坐标轴
-                if not hasattr(axes, 'shape'):
-                    ax = axes
-                elif len(axes.shape) == 2:
-                    ax = axes[i, j]
-                elif len(axes.shape) == 1:  # num_rows = 1 or num_cols = 1
-                    ax = axes[idx]
-                else:
-                    raise ValueError
-                ax.imshow(imgs[idx])
-                if plot_func is not None:
-                    plot_func(idx, ax)
-                if titles is not None:
-                    ax.set_title(titles[idx])
-    # 调整子图之间的间距
-    plt.tight_layout()
-    plt.show()
-
-
 class COCOVisUtils(object):
     # def __init__(self, coco):
     #     if isinstance(coco, str):
@@ -431,44 +397,6 @@ class COCOVisUtils(object):
             if cat['name'] == cat_name:
                 return cat_id
 
-
-# class CoarsePointCOCOVisUtils(COCOVisUtils):
-#
-#     @staticmethod
-#     def draw_pts(pts, ax=None, **kwargs):
-#         if ax is None:
-#             ax = plt.gca()
-#         ax.scatter(pts[:, 0], pts[:, 1], **kwargs)  # , s=size, c=color)
-#
-#     @staticmethod
-#     def show_results(coco, img_id, cat_ids=[1], data_root='data/coco/images/', ss=3):
-#         def plot_func(idx, ax):
-#             anns = coco.loadAnns(coco.getAnnIds(imgIds=[img_id], catIds=cat_ids))
-#             if len(anns) == 0:
-#                 return
-#             cls.draw_anns(anns, 'true_bbox', ax=ax, linewidth=ss)
-#
-#             ann_pts = np.array([ann['point'] for ann in anns])
-#
-#             refine_res = np.array([ann['refine_res'] for ann in anns])
-#             refine_pts = refine_res[:, :, :2] + refine_res[:, :, 2:4] / 2
-#             is_refined = refine_res[:, :, -1]
-#             all_pts = np.concatenate([ann_pts[:, None], refine_pts], axis=1)
-#             for i in range(len(all_pts)):
-#                 pts = all_pts[i]
-#                 plt.plot(pts[:, 0], pts[:, 1], '-->', c='b', linewidth=ss)
-#                 cls.draw_pts(pts, color='r', s=20 * ss, ax=ax)
-#                 print(pts[1:] - pts[:-1], ((pts[1:] - pts[:-1]) ** 2).sum(axis=-1) ** 0.5)
-#
-#             cls.draw_pts(ann_pts, color=(0, 1, 0), s=20 * ss)
-#
-#         cls = CoarsePointCOCOVisUtils
-#         img_info = coco.imgs[img_id]
-#         img = cls.load_image(img_info, data_root)
-#         show_images([img], plot_func)
-#
-#
-# coco_vis = CoarsePointCOCOVisUtils()
 
 if __name__ == '__main__':
     from pycocotools.coco import COCO

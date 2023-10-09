@@ -1,4 +1,5 @@
-## resize_dataset
+# tools
+## 1. resize_dataset
 
 ```shell
 # COCO200, train+val
@@ -12,6 +13,7 @@ PYTHONPATH=..:$PYTHONPATH python ../huicv/coco_utils/resize_dataset.py \
   --save-img-root data/coco/resize/images_200x333_q100 --im-size 200,333 --jpg-quality 100
 ```
 
+# visualization
 ## 1. show image of coco format dataset
 ```python
 from pycocotools.coco import COCO
