@@ -374,6 +374,15 @@ def show_images(imgs, plot_func=None, mxn=None, fig_kwargs={}, titles=None):
 
 
 class COCOVisUtils(object):
+    # def __init__(self, coco):
+    #     if isinstance(coco, str):
+    #         coco = COCO(coco)
+    #     elif isinstance(coco, COCO):
+    #         pass
+    #     else:
+    #         raise TypeError
+    #     self.coco = coco
+
     @staticmethod
     def load_image(img_info, data_root='data/coco/images/', dtype=np.float32):
         img = Image.open(os.path.join(data_root, img_info['file_name']))
@@ -405,12 +414,16 @@ class COCOVisUtils(object):
         raise NotImplemented
 
     @staticmethod
-    def show_image_with_anns(coco, img_id, *args, data_root='data/coco/images/', **kwargs):
+    def show_image_with_anns(coco, img_id=None, data_root='data/coco/images/', show=True):
+        if img_id is None:
+            img_id = list(coco.imgs.keys())[0]
         img_info = coco.imgs[img_id]
         COCOVisUtils.show_image(img_info, data_root)
 
         anns = coco.loadAnns(coco.getAnnIds(imgIds=[img_id]))
         COCOVisUtils.draw_anns(anns, 'bbox')
+        if show:
+            plt.show()
 
     @staticmethod
     def get_cat_id(cat_name, coco):
@@ -459,10 +472,8 @@ class COCOVisUtils(object):
 
 if __name__ == '__main__':
     from pycocotools.coco import COCO
-    import matplotlib.pyplot as plt
 
-    coco_vis = COCOVisUtils()
     coco = COCO('data/coco/annotations/val2017.json')
-    img_id = list(coco.imgs.keys())[0]
-    coco_vis.show_image_with_anns(coco, img_id, data_root='data/coco/train2017/')
-    plt.show()
+    coco_vis = COCOVisUtils()
+    # img_id=None means show the first image in coco.imgs
+    coco_vis.show_image_with_anns(coco, img_id=None, data_root='data/coco/train2017/')
