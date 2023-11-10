@@ -220,7 +220,7 @@ class MergeResult(object):
         return merge_result
 
     def nms(self, merge_result, scores):
-        from ..deps.mini_maskrcnn_benchmark.mini_maskrcnn_benchmark.layers import nms as _box_nms
+        from huicv.deps.mini_maskrcnn_benchmark.mini_maskrcnn_benchmark.layers import nms as _box_nms
         import torch
         if scores is None:
             scores = torch.ones(size=(len(merge_result),))
