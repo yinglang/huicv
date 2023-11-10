@@ -2,13 +2,22 @@
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
 
-#include <THC/THC.h>
+// #include <THC/THC.h>
 #include <THC/THCDeviceUtils.cuh>
 
 #include <vector>
 #include <iostream>
 
 int const threadsPerBlock = sizeof(unsigned long long) * 8;
+
+#define CUDA_CHECK(expr) \
+  do { \
+    cudaError_t err = (expr); \
+    if (err != cudaSuccess) { \
+      fprintf(stderr, "CUDA error: %s at %s:%d\n", cudaGetErrorString(err), "huicv/deps/mini_maskrcnn_benchmark/mini_maskrcnn_benchmark/csrc/cuda/nms.cu", 18); \
+      std::exit(EXIT_FAILURE); \
+    } \
+  } while (0)
 
 __device__ inline float devIoU(float const * const a, float const * const b) {
   float left = max(a[0], b[0]), right = min(a[2], b[2]);
@@ -61,7 +70,8 @@ __global__ void nms_kernel(const int n_boxes, const float nms_overlap_thresh,
         t |= 1ULL << i;
       }
     }
-    const int col_blocks = THCCeilDiv(n_boxes, threadsPerBlock);
+    // const int col_blocks = THCCeilDiv(n_boxes, threadsPerBlock);
+    const int col_blocks = (n_boxes + threadsPerBlock - 1) / threadsPerBlock;
     dev_mask[cur_box_idx * col_blocks + col_start] = t;
   }
 }
@@ -76,20 +86,27 @@ at::Tensor nms_cuda(const at::Tensor boxes, float nms_overlap_thresh) {
 
   int boxes_num = boxes.size(0);
 
-  const int col_blocks = THCCeilDiv(boxes_num, threadsPerBlock);
+  // const int col_blocks = THCCeilDiv(boxes_num, threadsPerBlock);
+  const int col_blocks = (boxes_num + threadsPerBlock - 1) / threadsPerBlock;
 
   scalar_t* boxes_dev = boxes_sorted.data<scalar_t>();
 
-  THCState *state = at::globalContext().lazyInitCUDA(); // TODO replace with getTHCState
+  // THCState *state = at::globalContext().lazyInitCUDA(); // TODO replace with getTHCState
+  cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
-  unsigned long long* mask_dev = NULL;
+  // unsigned long long* mask_dev = NULL;
   //THCudaCheck(THCudaMalloc(state, (void**) &mask_dev,
   //                      boxes_num * col_blocks * sizeof(unsigned long long)));
 
-  mask_dev = (unsigned long long*) THCudaMalloc(state, boxes_num * col_blocks * sizeof(unsigned long long));
+  // mask_dev = (unsigned long long*) THCudaMalloc(state, boxes_num * col_blocks * sizeof(unsigned long long));
+  unsigned long long* mask_dev = nullptr;
+  CUDA_CHECK(cudaMalloc((void**)&mask_dev, boxes_num * col_blocks * sizeof(unsigned long long)));
 
-  dim3 blocks(THCCeilDiv(boxes_num, threadsPerBlock),
-              THCCeilDiv(boxes_num, threadsPerBlock));
+
+  // dim3 blocks(THCCeilDiv(boxes_num, threadsPerBlock),
+  //            THCCeilDiv(boxes_num, threadsPerBlock));
+  dim3 blocks((boxes_num + threadsPerBlock - 1) / threadsPerBlock,
+            (boxes_num + threadsPerBlock - 1) / threadsPerBlock);
   dim3 threads(threadsPerBlock);
   nms_kernel<<<blocks, threads>>>(boxes_num,
                                   nms_overlap_thresh,
@@ -97,10 +114,14 @@ at::Tensor nms_cuda(const at::Tensor boxes, float nms_overlap_thresh) {
                                   mask_dev);
 
   std::vector<unsigned long long> mask_host(boxes_num * col_blocks);
-  THCudaCheck(cudaMemcpy(&mask_host[0],
-                        mask_dev,
-                        sizeof(unsigned long long) * boxes_num * col_blocks,
-                        cudaMemcpyDeviceToHost));
+  // THCudaCheck(cudaMemcpy(&mask_host[0],
+  //                       mask_dev,
+  //                       sizeof(unsigned long long) * boxes_num * col_blocks,
+  //                       cudaMemcpyDeviceToHost));
+  CUDA_CHECK(cudaMemcpy(&mask_host[0],
+                      mask_dev,
+                      sizeof(unsigned long long) * boxes_num * col_blocks,
+                      cudaMemcpyDeviceToHost));
 
   std::vector<unsigned long long> remv(col_blocks);
   memset(&remv[0], 0, sizeof(unsigned long long) * col_blocks);
@@ -122,7 +143,8 @@ at::Tensor nms_cuda(const at::Tensor boxes, float nms_overlap_thresh) {
     }
   }
 
-  THCudaFree(state, mask_dev);
+  CUDA_CHECK(cudaFree(mask_dev));
+  // THCudaFree(state, mask_dev);
   // TODO improve this part
   return std::get<0>(order_t.index({
                        keep.narrow(/*dim=*/0, /*start=*/0, /*length=*/num_to_keep).to(
