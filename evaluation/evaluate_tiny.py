@@ -107,7 +107,7 @@ def check_expected_results(results, expected_results, sigma_tol):
 
 
 def merge_det_result(json_result_file, corner_gt_file, merged_gt_file, merge_nms_th=1.0):
-    from huicv.corner_dataset.split_and_merge_image import COCOMergeResult
+    from huicv.coco_utils.corner_dataset.split_and_merge_image import COCOMergeResult
     print('merge result from sub image', json_result_file, merged_gt_file)
     if merge_nms_th >= 1.0 - 1e-6:
         use_nms = False

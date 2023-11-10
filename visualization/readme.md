@@ -47,7 +47,7 @@ show_meanY_and_density_of_Xbins(data_a, data_b)
 ```
 
 > 散点图很难看出分布来
-> 密度热土可以看到点对只要集中在(0, 0)附近
+> 密度热图可以看到点对只要集中在(0, 0)附近
 > 从mean:X-Y可以看到Y的均值与X无关
 
 ![scatter](../demo/img/vis/scatter.png)
