@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Comparison Table</title>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <table>
+        <tr>
+            <th>Original Image</th>
+            <th>Detected Image</th>
+            <th>GT Image</th>
+        </tr>
+        <!-- 示例行，你需要为每一组图片添加一个类似的行 -->
+        <tr>
+            <td><img src="logs/vis_results/advertisment_parsing_4gpu/advertisment/v2_8class_5/DINO/R50-MS4/eval/checkpoint0011/val/10003964141.png" alt="Original Image"></td>
+            <td><img src="path_to_detected_images/image_filename.jpg" alt="Detected Image"></td>
+            <td><img src="path_to_gt_images/image_filename.jpg" alt="GT Image"></td>
+        </tr>
+        <!-- 你可以复制上面的<tr>...</tr>块来添加更多的图片行 -->
+    </table>
+</body>
+</html>
