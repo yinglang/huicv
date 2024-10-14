@@ -82,7 +82,7 @@ def draw_bbox(fig, bboxes, color=None, linewidth=1, fontsize=5, normalized_label
     """
         draw boxes on fig
     argumnet:
-        bboxes: [[x1, y1, x2, y2, (cid), (score) ...]],
+        bboxes: [[x1, y1, x2, y2, (cid), (score), (ann_id) ...]],
         color: box color, if class_colors not None, it will not use.
         normalized_label: if label xmin, xmax, ymin, ymax is normaled to 0~1, set it to True and wh must given, else set to False.
         wh: (image width, height) needed when normalized_label set to True
@@ -119,11 +119,16 @@ def draw_bbox(fig, bboxes, color=None, linewidth=1, fontsize=5, normalized_label
 
     for i, box in enumerate(bboxes):
         if instance_colors is not None:
-            color = instance_colors[i]
+            color = instance_colors[i % len(instance_colors)]
         # [x1, y1, x2, y2, (cid), (score) ...]
         if len(box) >= 5 and box[4] < 0: continue  # have cid or not
         if len(box) >= 6 and threshold is not None and box[5] < threshold: continue
-        if len(box) >= 5 and class_colors is not None: color = class_colors[int(box[4])]
+        if len(box) >= 5 and class_colors is not None: 
+            cid = int(box[4])
+            color = class_colors[cid % len(class_colors)]
+            if cid >= len(class_colors):
+                warnings.warn(f"class id {cid} is out of range of class_colors, need specified class_colors to a list with "
+                              f"length bigger than {cid+1}, or class_colors[{cid} % {len(class_colors)}]")
         if len(box) >= 5 and use_real_line is not None and not use_real_line[int(box[4])]:
             box_to_dashed_rect(box[:4], color, linewidth, ax=fig)
         else:
@@ -133,8 +138,11 @@ def draw_bbox(fig, bboxes, color=None, linewidth=1, fontsize=5, normalized_label
             cid = int(box[4])
             if class_names is not None: cid = class_names[cid]
             text = str(cid)
-            if len(box) >= 6: text += " {:.3f}".format(box[5])
-            fig.text(box[0], box[1], text,
+            if len(box) >= 6 and box[5] >= 0: text += " {:.3f}".format(box[5])  # score
+            if len(box) >= 7 and box[6] >= 0: text += " {}".format(int(box[6]))      # ann_id
+            text_xy = (box[0], box[1])
+            # text_xy = (box[0]+box[2]) / 2, (box[1]+box[3]) / 2
+            fig.text(text_xy[0], text_xy[1], text,
                      bbox=dict(facecolor=(1, 1, 1), alpha=0.5), fontsize=fontsize, color=color)
 
 
@@ -196,20 +204,30 @@ def show_image_with_det_results(img_path, results, save_path=None, dpi=100, **kw
 
 
 def show_image_with_anns(img_path, anns, *args, **kwargs):
-    return show_image_with_det_results(img_path, anns_to_results(anns), *args, **kwargs)
+    kwargs = deepcopy(kwargs)
+    show_ann_id = kwargs.pop("show_ann_id", False)
+    return show_image_with_det_results(img_path, anns_to_results(anns, show_ann_id), *args, **kwargs)
 
 
-def show_coco_image_with_ids(coco, image_dir, img_id=None, ann_id=None, **kwargs):
+def show_coco_image_with_ids(coco, image_dir, img_id=None, ann_id=None, anns=None, class_names=None, show_text=True, fontsize=10, **kwargs):
     """
     Example:
         show_coco_image_with_ids(coco_gt, image_dir, img_id=1)
         show_coco_image_with_ids(coco_gt, image_dir, ann_id=1)
+        show_coco_image_with_ids(coco_gt, image_dir, ann_id=[1, 2, 3])
     """
-    assert img_id is None or ann_id is None
-    if ann_id is not None:
-        ann_info = coco.anns[ann_id]
-        img_id = ann_info['image_id']
-        anns = [ann_info]
+    assert sum([img_id is not None, ann_id is not None, anns is not None]) == 1, "img_id, ann_id, anns must have one and only one"
+    if ann_id is not None or anns is not None:
+        if ann_id is not None:
+            if not isinstance(ann_id, (tuple, list)):
+                ann_id = [ann_id]
+            assert len(ann_id) > 0, "ann_id is empty list"
+            anns = [coco.anns[aid] for aid in ann_id]
+        elif anns is not None:
+            pass
+        img_id = set([ann['image_id'] for ann in anns])
+        assert len(img_id) == 1, "ann_id must belong to the same image, but img_id is {}".format(img_id)
+        img_id = img_id.pop()
     elif img_id is not None:
         anns = coco.imgToAnns[img_id]
     else:
@@ -217,14 +235,19 @@ def show_coco_image_with_ids(coco, image_dir, img_id=None, ann_id=None, **kwargs
         
     img_info = coco.imgs[img_id]
     img_path = os.path.join(image_dir, img_info['file_name'])
-    show_image_with_anns(img_path, anns, **kwargs)
+    if class_names is None:
+        class_names = {cat_id: cat['name'] for cat_id, cat in coco.cats.items()}
+    show_image_with_anns(img_path, anns, class_names=class_names, show_text=show_text, fontsize=fontsize, **kwargs)
 
 
 # show with anns, anns to results
-def anns_to_results(anns):
+def anns_to_results(anns, show_ann_id=False):
     results = []
     for ann in anns:
         x1, y1, w, h = ann['bbox']
         x2, y2 = x1 + w, y1 + h
-        results.append([x1, y1, x2, y2, ann['category_id']])
+        res = [x1, y1, x2, y2, ann['category_id']]
+        if show_ann_id:
+            res.extend([-1, ann['id']])  # score, ann_id
+        results.append(res)
     return np.array(results)
