@@ -24,6 +24,16 @@ def plot_func(idx, ax):
 show_images(images, plot_func=plot_func)
 ```
 
+### 2. show with coco
+
+```py
+from pycocotools.coco import COCO
+import huicv.visualization as huivis
+coco = COCO(ann_file)
+img_root = 'data/images'
+huivis.show_image_set_with_anns(coco, img_root, image_number_or_ids=10)
+```
+
 ## Analysis
 ### 2. find out the relation between two data X, Y
 
