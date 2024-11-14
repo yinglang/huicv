@@ -3,6 +3,8 @@
 ### 1. show_images
 Example: huicv/demo/demo_vis.py
 
+#### matplitlib
+
 ```python
 from huicv.visualization import show_images
 import numpy as np
@@ -22,6 +24,13 @@ def plot_func(idx, ax):
 
 # define yours plot func
 show_images(images, plot_func=plot_func)
+```
+
+#### PIL.Image
+
+```py
+from huicv.visualization import draw_pil_bbox
+draw_pil_bbox(render_image, bboxes, cats, fill=True)
 ```
 
 ### 2. show with coco

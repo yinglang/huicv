@@ -251,3 +251,52 @@ def anns_to_results(anns, show_ann_id=False):
             res.extend([-1, ann['id']])  # score, ann_id
         results.append(res)
     return np.array(results)
+
+
+
+# 
+from PIL import Image, ImageDraw
+import cv2
+
+
+def draw_pil_bbox(
+    image, sorted_bboxes, sorted_classes, 
+    colors={1: '#929F29',   
+            2: '#1FA39A',  
+            3: '#987FF2',      
+            4: '#F56881',    
+            5: "#0000FF"}, linewidth=2, fill=True
+):
+    drawn_outline = image.copy()
+    draw_ol = ImageDraw.ImageDraw(drawn_outline)
+    if fill:
+        drawn_fill = image.copy()
+        draw_f = ImageDraw.ImageDraw(drawn_fill)
+
+    clses = list(sorted_classes)
+    drawbbox = list(sorted_bboxes)
+
+    for b,l in zip(drawbbox, clses):
+        draw_ol.rectangle([b[0],b[1],b[2],b[3]], outline=colors[l], width=linewidth)
+    drawn_outline = drawn_outline.convert("RGBA")
+    if fill:
+        for b,l in zip(drawbbox,clses):
+            draw_f.rectangle([b[0],b[1],b[2],b[3]], fill=colors[l])
+        drawn_fill = drawn_fill.convert("RGBA")
+
+        drawn_fill.putalpha(int(256 * 0.4))
+        img = Image.alpha_composite(drawn_outline, drawn_fill)
+    else:
+        img = drawn_outline
+    return img
+
+
+def grid_pil_images(images, grid_width=3, grid_height=3):
+    grid_size = images[0].size
+    grid_image = Image.new('RGB', (grid_width * grid_size[0], grid_height * grid_size[1]))
+    
+    for i, img in enumerate(images):
+        row = i // grid_width
+        col = i % grid_width
+        grid_image.paste(img, (col * grid_size[0], row * grid_size[1]))
+    return grid_image
