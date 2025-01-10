@@ -33,6 +33,35 @@ from huicv.visualization import draw_pil_bbox
 draw_pil_bbox(render_image, bboxes, cats, fill=True)
 ```
 
+#### show_on_web
+
+```py
+import huicv.visualization.web_vis as hui_web_vis
+
+save_dir = "/apdcephfs_cq9/share_1447896/lucienymliu/html/xuehuiyu/layout/html/"
+
+img_dir_dict = {
+    "底图": f"../image_canvas/",  # relative to 
+    "元素": f"../image_elems/",
+    "混元生成图":f"../image_gen_{hunyuan_vlm_infer.model_name}/",
+    "llava生成图": f"../image_gen_{llava_vlm_infer.model_name}/", 
+    "intervl生成图": f"../image_gen_{intervl_vlm_infer.model_name}/", 
+    "原图":f"../image_origin/",
+}
+range=(0, 100)
+image_urs_list, column_names = hui_web_vis.get_image_urls(img_dir_dict, ".", image_root=save_dir, show_range=range)
+html = hui_web_vis.build_image_table_html(image_urs_list, column_names, template_id=1)
+
+html_path = f'{save_dir}/1.html'
+os.makedirs(os.path.split(html_path)[0], exist_ok=True)
+with open(html_path, 'w') as f:
+    f.write(html)
+
+import random
+print(f"http://{your_server_ip}/lucienymliu/html/xuehuiyu/layout/html/1.html?{random.randint(0, 60000)}")
+```
+
+
 ### 2. show with coco
 
 ```py

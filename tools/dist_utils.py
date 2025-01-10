@@ -17,7 +17,7 @@ class TorchDist:
         torch_dist_activate = True
 
     @staticmethod
-    def join():
+    def join(check_done_dir=None):
         if torch_dist_activate:
             dist.barrier()  # wait for all processes to finish
             if torch.distributed.get_rank() == 0:
@@ -56,16 +56,37 @@ class TorchDist:
 class HuiDist:
     world_size = None
     local_rank = None
+    cuda_visible_devices = None
     # rank = None
 
     @staticmethod
     def setup():
         HuiDist.world_size = int(os.environ['WORLD_SIZE'])
-        HuiDist.local_rank = int(os.environ['LOCAL_RANK'])
+        if 'LOCAL_RANK' in os.environ and os.environ['LOCAL_RANK'] != '':
+            HuiDist.local_rank = int(os.environ['LOCAL_RANK'])
+        else:
+            HuiDist.local_rank = int(os.environ['HUI_LOCAL_RANK'])  # to avoid xtuner problem
+        gpus = [int(i) for i in range(len(os.getenv('CUDA_VISIBLE_DEVICES', "0").split(",")))]
+        HuiDist.cuda_visible_devices = gpus
 
     @staticmethod
-    def join():
-        pass
+    def join(check_done_dir='/tmp/check_done'):
+        os.makedirs(check_done_dir, exist_ok=True)
+        # create a file to indicate that the current gpu has finished
+        with open(os.path.join(check_done_dir, f'gpu{HuiDist.get_rank()}'), 'w') as f:
+            pass
+        
+        check_i = 0
+        done_file = os.listdir(check_done_dir)
+        while len(done_file) < HuiDist.get_world_size(): # check if all gpu has finished
+            check_i += 1
+            if check_i % 10 == 0 and HuiDist.get_rank() == 0:
+                print(f"GPU {HuiDist.get_rank()}: {done_file} has done, wait for other gpu to finish")
+                
+            time.sleep(30)
+            done_file = os.listdir(check_done_dir)
+        if HuiDist.get_rank() == 0:
+            shutil.rmtree(check_done_dir)
 
     @staticmethod
     def get_rank():
@@ -81,7 +102,11 @@ class HuiDist:
 
     @staticmethod
     def device():
-        return 0
+        if len(HuiDist.cuda_visible_devices) == HuiDist.world_size:
+            return HuiDist.cuda_visible_devices[HuiDist.local_rank]
+        else:
+            assert len(HuiDist.cuda_visible_devices) == 1, "cuda_visible_devices length must be 1 or equal to world_size"
+            return 0
 
     @staticmethod
     def model(_model):
@@ -123,8 +148,8 @@ def setup(backend='ddp'):
 
 def print_dist_args():
     print("dist args:")
-    for key in ["WORLD_SIZE", "LOCAL_RANK", "DIST_BACKEND"]:
-        print('\t', key, os.environ[key])
+    for key in ["WORLD_SIZE", "LOCAL_RANK", "HUI_LOCAL_RANK", "DIST_BACKEND"]:
+        print('\t', key, os.environ.get(key, ""))
 
 
 join = TorchDist.join
