@@ -1,8 +1,8 @@
 import torch.distributed as dist
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
-import os
-
+import os, shutil
+import time
 
 torch_dist_activate = False
 mp_backend = 'ddp'  # 'hui'
@@ -86,7 +86,10 @@ class HuiDist:
             time.sleep(30)
             done_file = os.listdir(check_done_dir)
         if HuiDist.get_rank() == 0:
-            shutil.rmtree(check_done_dir)
+            try:
+                shutil.rmtree(check_done_dir)
+            except FileNotFoundError:
+                pass
 
     @staticmethod
     def get_rank():
