@@ -85,11 +85,11 @@ class HuiDist:
                 
             time.sleep(30)
             done_file = os.listdir(check_done_dir)
-        if HuiDist.get_rank() == 0:
-            try:
-                shutil.rmtree(check_done_dir)
-            except FileNotFoundError:
-                pass
+        # if HuiDist.get_rank() == 0: # delete will broke before check for other process
+        #     try:
+        #         shutil.rmtree(check_done_dir)
+        #     except FileNotFoundError:
+        #         pass
 
     @staticmethod
     def get_rank():
