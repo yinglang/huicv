@@ -33,6 +33,13 @@ from huicv.visualization import draw_pil_bbox
 draw_pil_bbox(render_image, bboxes, cats, fill=True)
 ```
 
+```py
+import huicv.visualization as huivis
+
+gid_img = huivis.grid_pil_images([pil_img1, pil_img2, pil_img3], 3, 1)
+plt.imshow(grid_img)
+```
+
 #### show_on_web
 
 ```py

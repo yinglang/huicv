@@ -54,3 +54,58 @@ class DirDict(object):
 
     def save_all(self, save_path):
         json.dump(self.data_dict, open(save_path, 'w'))
+        
+        
+import pandas as pd
+
+class CSVDeal:
+    def __init__(self, csv_file):
+        """
+        构造函数，从给定的 CSV 文件中读取数据
+        :param csv_file: CSV 文件的路径
+        """
+        self.df = pd.read_csv(csv_file)
+
+    def merge_nonans(self, csv_files, key_column):
+        for csv_file in csv_files:
+            self.merge_nonan(csv_file, key_column)
+    
+    def merge_nonan(self, csv_file, key_column):
+        """
+        根据指定的键列合并另一个 CSV 文件的数据到当前 CSV 数据中
+        :param csv_file: 另一个 CSV 文件的路径
+        :param key_column: 用于匹配行的键列名
+        """
+        # 读取另一个 CSV 文件
+        other_df = pd.read_csv(csv_file)
+
+        # 合并两个 DataFrame
+        merged_df = pd.merge(self.df, other_df, on=key_column, how='outer', suffixes=('_self', '_other'))
+
+        # 遍历除键列之外的所有列
+        for column in self.df.columns:
+            if column != key_column:
+                # 情况 1：两列值都非空且不相等
+                condition1 = merged_df[f'{column}_self'].notnull() & merged_df[f'{column}_other'].notnull() & (
+                        merged_df[f'{column}_self'] != merged_df[f'{column}_other'])
+                if any(condition1):
+                    # 打印警告信息
+                    print(f"Warning: 在列 '{column}' 中，以下行的值不相等，将使用另一个 CSV 文件的值更新：")
+                    print(merged_df[condition1][[key_column, f'{column}_self', f'{column}_other']])
+                    # 使用另一个 CSV 文件的值更新当前 CSV
+                    merged_df.loc[condition1, f'{column}_self'] = merged_df.loc[condition1, f'{column}_other']
+
+                # 情况 2：当前 CSV 为空，另一个 CSV 非空
+                condition2 = merged_df[f'{column}_self'].isnull() & merged_df[f'{column}_other'].notnull()
+                merged_df.loc[condition2, f'{column}_self'] = merged_df.loc[condition2, f'{column}_other']
+
+        # 重命名列并选择需要的列
+        new_column_names = {f'{col}_self': col for col in self.df.columns}
+        self.df = merged_df.rename(columns=new_column_names)[self.df.columns]
+
+    def save(self, output_file):
+        """
+        将当前 DataFrame 保存到指定的 CSV 文件中
+        :param output_file: 输出 CSV 文件的路径
+        """
+        self.df.to_csv(output_file, index=False)

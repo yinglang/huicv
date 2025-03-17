@@ -47,6 +47,10 @@ class TorchDist:
             return DDP(_model, device_ids=[int(os.environ['LOCAL_RANK'])])
         else:
             return _model
+    
+    @staticmethod
+    def dataset(_dataset):
+        raise NotImplementedError
 
     @staticmethod
     def device():
@@ -114,10 +118,21 @@ class HuiDist:
     @staticmethod
     def model(_model):
         return _model
+    
+    @staticmethod
+    def dataset(_dataset):
+        dist_utils = HuiDist
+        d_n = dist_utils.get_world_size()
+        d_i = dist_utils.get_rank()
+        if isinstance(_dataset, list):
+            dataset = dataset[d_i::d_n]
+        else:
+            raise NotImplementedError
+        return dataset
 
 
 def set_func_for_mp_backend(backend='ddp'):
-    global mp_backend, join, get_rank, get_world_size, wait, model, device
+    global mp_backend, join, get_rank, get_world_size, wait, model, device, dataset
     mp_backend = backend
     if backend == 'ddp':
         # setup = TorchDist.setup
@@ -127,6 +142,7 @@ def set_func_for_mp_backend(backend='ddp'):
         wait = TorchDist.wait
         model = TorchDist.model
         device = TorchDist.device
+        dataset = TorchDist.dataset
     elif backend == 'hui':
         # setup = HuiDist.setup
         join = HuiDist.join
@@ -135,11 +151,14 @@ def set_func_for_mp_backend(backend='ddp'):
         wait = HuiDist.wait
         model = HuiDist.model
         device = HuiDist.device
+        dataset = HuiDist.dataset
     else:
         raise VauleError(f'backend {backend} not supported')
 
 
 def setup(backend='ddp'):
+    if backend is None:
+        backend = os.environ['DIST_BACKEND']
     set_func_for_mp_backend(backend)
     if backend == 'ddp':
         TorchDist.setup()
@@ -161,3 +180,19 @@ get_world_size = TorchDist.get_world_size
 wait = TorchDist.wait
 model = TorchDist.model
 device = TorchDist.device
+dataset = TorchDist.dataset
+
+
+# def main_run(_model, _dataset, infer_func):
+#     if __name__ == '__main__':
+#         print_dist_args()
+#         setup()
+#         _device = device()
+        
+#         _dataset = dataset(_dataset)
+#         _model = model(_model)
+        
+        
+#         infer_func(_model, _dataset, _device)
+        
+#         dist_utils.join(check_done_dir=os.path.join(res_dir, 'done'))

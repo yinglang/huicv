@@ -1,5 +1,28 @@
 # Dist Utils
 
+```py
+import huicv.tools.dist_utils as dist_utils
+
+if __name__ == '__main__':
+    dist_utils.print_dist_args()
+    dist_utils.setup()
+    device = dist_utils.device()
+
+    dataset = dist_utils.dataset(dataset)
+    model = dist_utils.model(model)
+    
+    res_dict = {}
+    for i, data in enumerate(dataset):
+        res = model(transform(data))
+        res_dict[data['idx']] = res["result"]
+        if len(res_dict) >= 100:
+            idxs = list(res_dict.keys())
+            json.dump(res_dict, open(os.path.join(res_dir, f"{min(idxs)_max(idxs)}.json"), 'w'))
+            res_dict = {}
+
+    dist_utils.join(check_done_dir=os.path.join(res_dir, 'done'))
+```
+
 ```shell
 export WORLD_SIZE=2
 export DIST_BACKEND="hui"
@@ -38,4 +61,14 @@ for i, data in enumerate(dataset):
 dir_dict.incremental_save()  # save left data
 
 print(dir_dict.data_dict)
+```
+
+# CSVDeal
+
+```py
+from huicv.tools.common_utils import CSVDeal
+
+csv_deal = CSVDeal("csv_file.csv")
+csv_deal.merge_nonan("csv_file2.csv", key_column="idx")
+csv_deal.save("csv_file_merge.csv")
 ```
