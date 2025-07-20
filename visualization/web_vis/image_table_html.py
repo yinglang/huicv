@@ -1,5 +1,6 @@
 import os
 from IPython.display import display, HTML
+from collections import OrderedDict
 
 
 html_table_tmplate = {
@@ -222,24 +223,24 @@ class Filter:
         // 筛选后更新分页
         currentPage = 1;
         updatePagination();
-        }"""
+    }"""
 
     @staticmethod
     def html_code(attrs):
         def get_filter_keys_and_values(attrs):
                 """获取所有filter keys及其对应的所有取值"""
-                filter_keys = set()
+                filter_keys = OrderedDict()
                 value_dict = {}
                 
                 if attrs:
                     for attr in attrs:
                         for key, value in attr.items():
-                            filter_keys.add(key)
+                            filter_keys[key] = None
                             if key not in value_dict:
                                 value_dict[key] = set()
                             value_dict[key].add(str(value))
                 
-                return filter_keys, value_dict
+                return filter_keys.keys(), value_dict
         
         filter_keys, value_dict = get_filter_keys_and_values(attrs)
         # 为每个filter key生成一个复选框组
@@ -250,7 +251,7 @@ class Filter:
                 <label>{key}:</label>
                 <div style='display: flex; flex-wrap: wrap;'>
                     <label style='margin-right: 10px;'>
-                        <input type='checkbox' name='{key}' value='[all]' checked onchange='filterTable()'> [all]
+                        <input type='checkbox' name='{key}' value='[all]' onchange='filterTable()'> [all]
                     </label>
             """
             # 添加其他选项
@@ -273,10 +274,10 @@ class Page:
     <div style="margin-bottom: 20px;">
         <label>每页显示行数:</label>
         <select id="rowsPerPage" onchange="changePageSize()">
-            <option value="10">10</option>
-            <option value="20">20</option>
-            <option value="50">50</option>
             <option value="100">100</option>
+            <option value="50">50</option>
+            <option value="20">20</option>
+            <option value="10">10</option>
         </select>
     </div>
     <div id="pagination" style="margin-top: 20px; text-align: center;">
@@ -287,7 +288,7 @@ class Page:
 
     scirpt = """
         let currentPage = 1;
-        let rowsPerPage = 10;
+        let rowsPerPage = 100;
         let totalRows = 0;
         let totalPages = 0;
 
@@ -357,6 +358,34 @@ class Page:
     """
 
 
+class CheckBox:
+    checkbox_html_code = """<input type="checkbox" class="itemCheckbox" data_id="{data_id}" column_name="{column_name}">"""
+    save_button_html_code = """<button id="saveCheckbox" onclick="save_checkbox_result(0)">保存选择结果</button>"""
+    script = """
+    function save_checkbox_result(idx) {
+        const checkedCheckboxes = Array.from(document.querySelectorAll(".itemCheckbox:checked"));
+        const selectedIds = checkedCheckboxes.map(checkbox => [checkbox.getAttribute("column_name"), checkbox.getAttribute("data_id")]);
+        console.log("save_checkbox_result() idx:", idx, selectedIds);
+
+        const result = {
+            selectedIds: selectedIds,
+            timestamp: new Date().toISOString()
+        };
+        
+        const blob = new Blob([JSON.stringify(result, null, 2)], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'selection_result.json';
+        document.body.appendChild(a);
+        a.click();
+        
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+"""
+
 def build_image_table_html(image_urls, column_names, attrs=None, template_id=0):
     """
         image_urls: (M, K), M rows and K columns
@@ -374,7 +403,6 @@ def build_image_table_html(image_urls, column_names, attrs=None, template_id=0):
     """
     table_template = '''
     {}
-    {}
     <table id="imageTable">
         <thead>
             {}
@@ -383,6 +411,7 @@ def build_image_table_html(image_urls, column_names, attrs=None, template_id=0):
             {}
         </tbody>
     </table>
+    {}
     '''
 
     ths = "<tr>" + "".join(['<th>{}</th>'.format(k) for k in column_names]) + "</tr>"   # title
@@ -391,16 +420,20 @@ def build_image_table_html(image_urls, column_names, attrs=None, template_id=0):
     txt_td_template = '<td style="overflow-wrap: break-word; word-break: break-all; width: 300px; border: 1px solid black;">{}</td>'
 
     trs = []
-    attr_list = []
     for idx, row_image_urls in enumerate(image_urls):
         tds = [] # [td_template.format(image_url, os.path.split(image_url)[-1], image_url) for image_url in row_image_urls]
-        for image_url in row_image_urls:
+        for col_idx, image_url in enumerate(row_image_urls):
             if isinstance(image_url, str):
                 tds.append(td_template.format(image_url, os.path.split(image_url)[-1], image_url))
             elif isinstance(image_url, tuple):
                 dtype, content = image_url
                 if dtype == 'str':
                     tds.append(txt_td_template.format(content))
+                elif dtype == 'checkbox':
+                    check_box_code = CheckBox.checkbox_html_code.format(
+                        data_id=idx if content is None else content,
+                        column_name=col_idx)
+                    tds.append(f'<td>{check_box_code}</td>')
                 else: raise NotImplementedError(image_url)
             else: raise NotImplementedError(image_url)
         
@@ -411,10 +444,11 @@ def build_image_table_html(image_urls, column_names, attrs=None, template_id=0):
         trs.append(tr)
 
     filter_html = Filter.html_code(attrs)
-    table_html = table_template.format(Page.html_code, filter_html, ths, "\n".join(trs))  # <table> ... </table>
+    botome_html = "\n".join([Page.html_code, CheckBox.save_button_html_code]) 
+    table_html = table_template.format(filter_html, ths, "\n".join(trs), botome_html)  # <table> ... </table>
     html_code = html_table_tmplate[template_id].replace("${image_table}", table_html)  # 
 
-    script_code = "\n".join([Filter.script, Page.scirpt])
+    script_code = "\n".join([Filter.script, Page.scirpt, CheckBox.script])  #  
     html_code = html_code.replace("${script}", script_code)  # 
     return html_code
 
