@@ -13,13 +13,16 @@ html_table_tmplate = {
     <title>Image Comparison Table</title>
     <style>
         table {
-            width: 100%;
+            width: auto;
             border-collapse: collapse;
+            margin: 0 auto;
         }
         th, td {
             border: 1px solid #ddd;
             padding: 8px;
             text-align: center;
+            max-width: 20vw;
+            width: auto;
         }
         th {
             background-color: #f2f2f2;
@@ -39,25 +42,25 @@ html_table_tmplate = {
     <title>Image Gallery</title>
     <style>
         table {
-            width: 100%;
+            width: auto;
             border-collapse: collapse;
+            margin: 0 auto;
         }
         th, td {
             padding: 8px;
             text-align: left;
             border-bottom: 1px solid #ddd;
+            max-width: 20vw; /* 不超过当前页面的20% */
+            width: auto;
         }
         img {
-            max-width: 100%;
+            width: 90%;  /* 图片占满90%的单元格 */
             height: auto;
         }
-        td.image{
-            width: 20%;
-        }
-        td.prompt {
-            width: 1%; /* 指定宽度，可以根据需要调整 */
-            white-space: pre-wrap; /* 保留换行符并自动换行 */
-            word-wrap: break-word; /* 如果单词太长，强制换行 */
+        img.multi_image {
+            max-width: 30% !important;
+            width: auto !important;
+            height: auto !important;
         }
         .fixed-column-width {
             width: 200px; /* 设置列宽为200px */
@@ -71,6 +74,8 @@ html_table_tmplate = {
             left: 0;
             width: 100%;
             height: 100%;
+            max-width: 100%;
+            max-height: 100%;
             background-color: rgba(0, 0, 0, 0.8);
             z-index: 100;
         }
@@ -83,6 +88,8 @@ html_table_tmplate = {
             left: 50%;
             max-width: 90%;
             max-height: 90%;
+            width: auto;
+            height: auto;
             transform: translate(-50%, -50%);
             cursor: pointer;
         }
@@ -417,6 +424,9 @@ def build_image_table_html(image_urls, column_names, attrs=None, template_id=0):
     ths = "<tr>" + "".join(['<th>{}</th>'.format(k) for k in column_names]) + "</tr>"   # title
     tr_template = '<tr attr-data="{}" selected="true">\n{}\n</tr>'
     td_template = '<td><img src="{}" alt="{}" onclick="showPreview(\'{}\')"></td>'
+    multi_img_td_template = lambda urls: '<td>{}</td>'.format('\n'.join([
+        f'<img class="multi_image" src="{url}" alt="{os.path.split(url)[-1]}" onclick="showPreview(\'{url}\')">' for url in urls
+        ]))
     txt_td_template = '<td style="overflow-wrap: break-word; word-break: break-all; width: 300px; border: 1px solid black;">{}</td>'
 
     trs = []
@@ -425,6 +435,8 @@ def build_image_table_html(image_urls, column_names, attrs=None, template_id=0):
         for col_idx, image_url in enumerate(row_image_urls):
             if isinstance(image_url, str):
                 tds.append(td_template.format(image_url, os.path.split(image_url)[-1], image_url))
+            elif isinstance(image_url, list):
+                tds.append(multi_img_td_template(image_url))
             elif isinstance(image_url, tuple):
                 dtype, content = image_url
                 if dtype == 'str':
@@ -521,4 +533,3 @@ def get_image_urls(image_dir_dict, base_url=".", image_root="./", image_names=No
         return image_urls, column_keys, image_names
     else:
         return image_urls, column_keys
-    
