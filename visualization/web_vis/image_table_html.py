@@ -1,6 +1,9 @@
 import os
+from typing import List
 from IPython.display import display, HTML
 from collections import OrderedDict
+import json
+from collections import defaultdict
 
 
 html_table_tmplate = {
@@ -181,7 +184,7 @@ class Filter:
         const filters = {};
         
         // 获取所有选中的复选框值
-        document.querySelectorAll("input[type='checkbox']").forEach(checkbox => {
+        document.querySelectorAll("input[ui_type='filter']").forEach(checkbox => {
             if (checkbox.checked) {
                 const key = checkbox.name;
                 const value = checkbox.value;
@@ -258,14 +261,14 @@ class Filter:
                 <label>{key}:</label>
                 <div style='display: flex; flex-wrap: wrap;'>
                     <label style='margin-right: 10px;'>
-                        <input type='checkbox' name='{key}' value='[all]' onchange='filterTable()'> [all]
+                        <input type='checkbox' ui_type='filter' name='{key}' value='[all]' onchange='filterTable()'> [all]
                     </label>
             """
             # 添加其他选项
             for value in sorted(value_dict[key]):
                 filter_html += f"""
                     <label style='margin-right: 10px;'>
-                        <input type='checkbox' name='{key}' value='{value}' onchange='filterTable()'> {value}
+                        <input type='checkbox' ui_type='filter' name='{key}' value='{value}' onchange='filterTable()'> {value}
                     </label>
                 """
             filter_html += """
@@ -366,8 +369,10 @@ class Page:
 
 
 class CheckBox:
+    # data_id 用来标识当前结果是针对那个图的；column_name记录当前checkbox在哪一列的列名
     checkbox_html_code = """<input type="checkbox" class="itemCheckbox" data_id="{data_id}" column_name="{column_name}">"""
     save_button_html_code = """<button id="saveCheckbox" onclick="save_checkbox_result(0)">保存选择结果</button>"""
+    load_button_html_code = """<button id="loadCheckbox" onclick="load_checkbox_result(0)">加载选择结果</button>"""
     script = """
     function save_checkbox_result(idx) {
         const checkedCheckboxes = Array.from(document.querySelectorAll(".itemCheckbox:checked"));
@@ -391,7 +396,80 @@ class CheckBox:
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
     }
+    
+    function load_checkbox_result(idx) {
+        console.log("load_checkbox_result() idx:", idx);
+        
+        // 创建文件输入元素
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = '.json';
+        fileInput.style.display = 'none';
+        
+        fileInput.addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const result = JSON.parse(e.target.result);
+                    console.log("Loaded checkbox result:", result);
+                    
+                    // 先取消所有checkbox的选中状态
+                    document.querySelectorAll('.itemCheckbox').forEach(checkbox => {
+                        checkbox.checked = false;
+                    });
+                    
+                    // 根据保存的结果设置checkbox状态
+                    if (result.selectedIds && Array.isArray(result.selectedIds)) {
+                        result.selectedIds.forEach(([columnName, dataId]) => {
+                            const checkbox = document.querySelector(`.itemCheckbox[column_name="${columnName}"][data_id="${dataId}"]`);
+                            if (checkbox) {
+                                checkbox.checked = true;
+                            }
+                        });
+                    }
+                    
+                    alert(`成功加载选择结果！共加载了 ${result.selectedIds ? result.selectedIds.length : 0} 个选择项`);
+                    
+                } catch (error) {
+                    console.error("Error parsing JSON file:", error);
+                    alert("文件格式错误，请选择正确的JSON文件");
+                }
+            };
+            
+            reader.readAsText(file);
+        });
+        
+        // 触发文件选择
+        document.body.appendChild(fileInput);
+        fileInput.click();
+        document.body.removeChild(fileInput);
+    }
 """
+
+def assert_no_suffix_str(keys: List[str]):
+    """
+    断言keys列表中不存在某个key是另一个key的后缀
+    Args:
+        keys: 字符串列表
+    Raises:
+        AssertionError: 如果存在后缀关系
+    """
+    if not keys or len(keys) < 2:
+        return
+    # 检查是否存在后缀关系
+    for i in range(len(keys)):
+        for j in range(len(keys)):
+            if i != j:  # 不比较自己
+                key1 = keys[i]
+                key2 = keys[j]
+                # 检查key1是否是key2的后缀
+                if key2.endswith(key1) and key1 != key2:
+                    raise AssertionError(f"Key '{key1}' is a suffix of key '{key2}'. This may cause conflicts in string matching.")
+    return True
+        
 
 def build_image_table_html(image_urls, column_names, attrs=None, template_id=0):
     """
@@ -420,6 +498,10 @@ def build_image_table_html(image_urls, column_names, attrs=None, template_id=0):
     </table>
     {}
     '''
+    if attrs is not None:
+        keys = set()
+        for attr in attrs: keys |= set(attr.keys())
+        assert_no_suffix_str(list(keys))
 
     ths = "<tr>" + "".join(['<th>{}</th>'.format(k) for k in column_names]) + "</tr>"   # title
     tr_template = '<tr attr-data="{}" selected="true">\n{}\n</tr>'
@@ -427,7 +509,7 @@ def build_image_table_html(image_urls, column_names, attrs=None, template_id=0):
     multi_img_td_template = lambda urls: '<td>{}</td>'.format('\n'.join([
         f'<img class="multi_image" src="{url}" alt="{os.path.split(url)[-1]}" onclick="showPreview(\'{url}\')">' for url in urls
         ]))
-    txt_td_template = '<td style="overflow-wrap: break-word; word-break: break-all; width: 300px; border: 1px solid black;">{}</td>'
+    txt_td_template = '<td style="overflow-wrap: break-word; word-break: break-all; width: 300px; border: 1px solid black; {}">{}</td>'
 
     trs = []
     for idx, row_image_urls in enumerate(image_urls):
@@ -438,13 +520,15 @@ def build_image_table_html(image_urls, column_names, attrs=None, template_id=0):
             elif isinstance(image_url, list):
                 tds.append(multi_img_td_template(image_url))
             elif isinstance(image_url, tuple):
-                dtype, content = image_url
+                dtype, content = image_url[:2]
                 if dtype == 'str':
-                    tds.append(txt_td_template.format(content))
+                    style = image_url[2] if len(image_url) >= 3 else ""
+                    tds.append(txt_td_template.format(style, content))
                 elif dtype == 'checkbox':
+                    column_name = image_url[2] if len(image_url) >= 3 else col_idx
                     check_box_code = CheckBox.checkbox_html_code.format(
                         data_id=idx if content is None else content,
-                        column_name=col_idx)
+                        column_name=column_name)
                     tds.append(f'<td>{check_box_code}</td>')
                 else: raise NotImplementedError(image_url)
             else: raise NotImplementedError(image_url)
@@ -455,7 +539,7 @@ def build_image_table_html(image_urls, column_names, attrs=None, template_id=0):
         tr = tr_template.format(attr_data, "\n".join(tds))
         trs.append(tr)
 
-    filter_html = Filter.html_code(attrs)
+    filter_html = "\n".join([Filter.html_code(attrs), CheckBox.load_button_html_code])
     botome_html = "\n".join([Page.html_code, CheckBox.save_button_html_code]) 
     table_html = table_template.format(filter_html, ths, "\n".join(trs), botome_html)  # <table> ... </table>
     html_code = html_table_tmplate[template_id].replace("${image_table}", table_html)  # 
@@ -533,3 +617,58 @@ def get_image_urls(image_dir_dict, base_url=".", image_root="./", image_names=No
         return image_urls, column_keys, image_names
     else:
         return image_urls, column_keys
+    
+def get_selected_checkbox_as_attrs_of_rows(rows_tag, json_datas, column_map=None, attrs=None):
+    """Read result JSON and convert to attributes for each row
+
+    Args:
+        rows_tag (list): row tags for each row, such as image_name/image_id/row_id
+        json_datas (dict, str): record setted column_name and row_tag of each selected checkbox
+            {
+                "selectedIds": [
+                    [column_name, row_tag],
+                    ...., 
+                ]
+            } 
+        column_map (dict): _description_
+
+    Returns: length of return equal to input_row_tag_list
+        list: [
+            {"column_name": True/False, ...}, 
+            ...
+        ]
+        
+    Example:
+        > image_names = [os.path.split(jd['image_path'])[-1] for jd in jds]
+        > images_list = [
+                [
+                    os.path.abspath(f"{images_root}/{sub_dir}/{image_name}"),
+                    ('checkbox', image_name, "文字乱码：大图明显"),    # ("checkbox", row_tag, column_name)
+                    ('checkbox', image_name, "文字乱码：底分辨率模糊"),
+                    ('checkbox', image_name, "文字乱码：原图模糊")
+                ] for image_name in image_names]
+        > column_names = ["image", "文字乱码：大图明显", "文字乱码：底分辨率模糊", "文字乱码：原图模糊"]
+        > vis_utils.save_to_web_and_get_url3(images_list, save_html_web_path, column_names, attrs=attrs)
+        >
+        > # saved checkbox json and load as attrs selected items
+        > checkbox_data = json.load(open('../dataset2/json/lableled/small_text_on_product.json'))
+        > column_map = {"小字畸形：明显": "1. 小字畸形：明显", "小字畸形：模糊": "2. 小字畸形：模糊", "小字畸形：底分辨率": "3. 小字畸形：底分辨率"} # colmun_name: showed attr name
+        > attrs = get_selected_checkbox_as_attrs_of_rows(image_names, checkbox_data, column_map)
+        > vis_utils.save_to_web_and_get_url3(images_list, save_html_web_path, column_names, attrs=attrs)
+    """
+    if isinstance(json_datas, str):
+        json_datas = json.load(open(json_datas))
+        
+    row_attrs = defaultdict(dict)
+    collected_column_names = set()
+    for column_name, row_tag in json_datas['selectedIds']:
+        column_name = column_map[column_name] if column_map is not None else column_name
+        row_attrs[row_tag][column_name] = True
+        collected_column_names.add(column_name)
+    
+    attrs = [{} for _ in range(len(rows_tag))] if attrs is None else attrs
+    for row_tag, attr in zip(rows_tag, attrs):
+        _attr = {c: False for c in collected_column_names}
+        _attr.update(row_attrs.get(row_tag, {}))
+        attr.update(_attr)
+    return attrs

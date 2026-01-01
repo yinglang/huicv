@@ -1,0 +1,27 @@
+#! /apdcephfs_cq7/share_1447896/xuehuiyu/Util/miniconda3/envs/imggen-cu118-pt221/bin/python
+import safetensors.torch
+import torch
+
+def load_and_compare(file1, file2):
+    t1, t2 = safetensors.torch.load_file(file1), safetensors.torch.load_file(file2)
+    results = {}
+    
+    for key in set(t1.keys()) & set(t2.keys()):
+        a, b = t1[key], t2[key]
+        if a.shape != b.shape or a.dtype != b.dtype:
+            continue
+        diff = torch.abs(a - b.to(a.dtype))
+        results[key] = {
+            "max": torch.max(diff).item(),
+            "mean": torch.mean(diff).item(),
+            "sum": torch.sum(diff).item()
+        }
+    
+    return results
+
+
+import sys
+arg = sys.argv
+
+for k, v in load_and_compare(arg[1], arg[2]).items():
+    print(k, v)
