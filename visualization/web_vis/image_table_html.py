@@ -370,7 +370,7 @@ class Page:
 
 class CheckBox:
     # data_id 用来标识当前结果是针对那个图的；column_name记录当前checkbox在哪一列的列名
-    checkbox_html_code = """<input type="checkbox" class="itemCheckbox" data_id="{data_id}" column_name="{column_name}">"""
+    checkbox_html_code = """<input type="checkbox" class="itemCheckbox" data_id="{data_id}" column_name="{column_name}" {checked}>"""
     save_button_html_code = """<button id="saveCheckbox" onclick="save_checkbox_result(0)">保存选择结果</button>"""
     load_button_html_code = """<button id="loadCheckbox" onclick="load_checkbox_result(0)">加载选择结果</button>"""
     script = """
@@ -526,9 +526,11 @@ def build_image_table_html(image_urls, column_names, attrs=None, template_id=0):
                     tds.append(txt_td_template.format(style, content))
                 elif dtype == 'checkbox':
                     column_name = image_url[2] if len(image_url) >= 3 else col_idx
+                    checked = image_url[3] if len(image_url) >= 4 else False
                     check_box_code = CheckBox.checkbox_html_code.format(
                         data_id=idx if content is None else content,
-                        column_name=column_name)
+                        column_name=column_name,
+                        checked="checked" if checked else "")
                     tds.append(f'<td>{check_box_code}</td>')
                 else: raise NotImplementedError(image_url)
             else: raise NotImplementedError(image_url)
